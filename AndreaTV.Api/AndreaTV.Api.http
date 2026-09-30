@@ -1,0 +1,31 @@
+@AndreaTV.Api_HostAddress = http://localhost:5234
+
+GET {{AndreaTV.Api_HostAddress}}/health
+Accept: application/json
+
+###
+
+GET {{AndreaTV.Api_HostAddress}}/api/movies/status
+Accept: application/json
+
+###
+
+GET {{AndreaTV.Api_HostAddress}}/api/series/status
+Accept: application/json
+
+###
+
+GET {{AndreaTV.Api_HostAddress}}/api/auth/status
+Accept: application/json
+
+###
+
+GET {{AndreaTV.Api_HostAddress}}/api/devices/status
+Accept: application/json
+
+###
+
+GET {{AndreaTV.Api_HostAddress}}/api/devices/xtream/status
+Accept: application/json
+
+###

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AndreaTV.Api.csproj" />
+  <Project Path="..\AndreaTV.Api.Tests\AndreaTV.Api.Tests.csproj" />
+</Solution>

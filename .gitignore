@@ -1,0 +1,16 @@
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.Local.json
+appsettings.Secrets.json
+
+# .NET build output
+bin/
+obj/
+
+# User-specific IDE files
+*.user
+*.suo
+.vs/
