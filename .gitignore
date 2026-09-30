@@ -5,6 +5,7 @@
 secrets.json
 appsettings.Local.json
 appsettings.Secrets.json
+App_Data/
 
 # .NET build output
 bin/

@@ -191,6 +191,159 @@ public sealed class XtreamClientTests
         Assert.Equal(1893456000, account.ServerInfo?.CurrentTimestamp);
     }
 
+    [Fact]
+    public async Task VodCategories_AreParsedAndUseExpectedAction()
+    {
+        var handler = new StubHttpMessageHandler(_ => JsonResponse(HttpStatusCode.OK,
+            """[{"category_id":12,"category_name":"Movies"}]"""));
+        var categories = await CreateClient(handler).GetVodCategoriesAsync();
+
+        var category = Assert.Single(categories);
+        Assert.Equal("12", category.CategoryId);
+        Assert.Equal("Movies", category.CategoryName);
+        Assert.Contains("action=get_vod_categories", handler.LastRequestUri?.Query);
+    }
+
+    [Fact]
+    public async Task VodStreams_AcceptNumericStringsAndMissingOptionalFields()
+    {
+        var handler = new StubHttpMessageHandler(_ => JsonResponse(HttpStatusCode.OK,
+            """[{"stream_id":"54672","name":"Example","category_id":7,"added":"1700000000","container_extension":"mp4"},{"stream_id":2}]"""));
+        var movies = await CreateClient(handler).GetVodStreamsAsync();
+
+        Assert.Equal(2, movies.Count);
+        Assert.Equal(54672, movies[0].StreamId);
+        Assert.Equal("7", movies[0].CategoryId);
+        Assert.Equal(1700000000, movies[0].Added);
+        Assert.Equal("mp4", movies[0].ContainerExtension);
+        Assert.Null(movies[1].Name);
+        Assert.Contains("action=get_vod_streams", handler.LastRequestUri?.Query);
+    }
+
+    [Fact]
+    public async Task SeriesCategories_AreParsedAndUseExpectedAction()
+    {
+        var handler = new StubHttpMessageHandler(_ => JsonResponse(HttpStatusCode.OK,
+            """[{"category_id":"4","category_name":"Drama"}]"""));
+        var categories = await CreateClient(handler).GetSeriesCategoriesAsync();
+
+        Assert.Equal("Drama", Assert.Single(categories).CategoryName);
+        Assert.Contains("action=get_series_categories", handler.LastRequestUri?.Query);
+    }
+
+    [Fact]
+    public async Task Series_AcceptNumericStringsAndMissingOptionalFields()
+    {
+        var handler = new StubHttpMessageHandler(_ => JsonResponse(HttpStatusCode.OK,
+            """[{"series_id":"91","name":"A Series","category_id":4,"rating":8,"last_modified":"1700000001"},{"series_id":92}]"""));
+        var series = await CreateClient(handler).GetSeriesAsync();
+
+        Assert.Equal(2, series.Count);
+        Assert.Equal(91, series[0].SeriesId);
+        Assert.Equal("4", series[0].CategoryId);
+        Assert.Equal("8", series[0].Rating);
+        Assert.Equal(1700000001, series[0].LastModified);
+        Assert.Null(series[1].Plot);
+        Assert.Contains("action=get_series", handler.LastRequestUri?.Query);
+    }
+
+    [Fact]
+    public async Task CatalogInvalidJson_ThrowsInvalidResponse()
+    {
+        var client = CreateClient(new StubHttpMessageHandler(_ => JsonResponse(HttpStatusCode.OK, "{")));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(() => client.GetVodStreamsAsync());
+        Assert.Equal(XtreamClientError.InvalidResponse, exception.Error);
+    }
+
+    [Fact]
+    public async Task CatalogHttpError_ThrowsSanitizedHttpError()
+    {
+        var client = CreateClient(new StubHttpMessageHandler(_ => JsonResponse(HttpStatusCode.BadGateway, "test-password")));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(() => client.GetSeriesAsync());
+        Assert.Equal(XtreamClientError.HttpError, exception.Error);
+        Assert.DoesNotContain("test-password", exception.Message);
+    }
+
+    [Fact]
+    public async Task Playback302_ReturnsAbsoluteLocationWithoutFollowingRedirect()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.Found);
+        response.Headers.Location = new Uri("http://stream.invalid:25461/movie/u/p/54672.mp4?token=secret");
+        var handler = new StubHttpMessageHandler(_ => response);
+
+        var result = await CreateClient(handler).ResolveMoviePlaybackUrlAsync(54672, "mp4");
+
+        Assert.Equal(response.Headers.Location, result);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal("IPTVSmartersPlayer", handler.LastUserAgent);
+        Assert.EndsWith("/movie/test-user/test-password/54672.mp4", handler.LastRequestUri?.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task PlaybackNon302_ThrowsUnexpectedResponse()
+    {
+        var client = CreateClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(() => client.ResolveMoviePlaybackUrlAsync(1, "mkv"));
+        Assert.Equal(XtreamClientError.UnexpectedResponse, exception.Error);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, XtreamClientError.CredentialsRejected)]
+    [InlineData(HttpStatusCode.Forbidden, XtreamClientError.CredentialsRejected)]
+    [InlineData(HttpStatusCode.NotFound, XtreamClientError.NotFound)]
+    public async Task PlaybackProviderErrors_AreDistinguished(
+        HttpStatusCode statusCode,
+        XtreamClientError expectedError)
+    {
+        var client = CreateClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(statusCode)));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(
+            () => client.ResolveMoviePlaybackUrlAsync(1, "mkv"));
+        Assert.Equal(expectedError, exception.Error);
+    }
+
+    [Fact]
+    public async Task PlaybackWithoutLocation_ThrowsMissingLocation()
+    {
+        var client = CreateClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Found)));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(() => client.ResolveMoviePlaybackUrlAsync(1, "mkv"));
+        Assert.Equal(XtreamClientError.MissingLocation, exception.Error);
+    }
+
+    [Theory]
+    [InlineData("/relative/movie.mkv")]
+    [InlineData("ftp://stream.invalid/movie.mkv")]
+    public async Task PlaybackWithInvalidLocation_ThrowsInvalidLocation(string location)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.Found);
+        response.Headers.Location = new Uri(location, UriKind.RelativeOrAbsolute);
+        var client = CreateClient(new StubHttpMessageHandler(_ => response));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(() => client.ResolveMoviePlaybackUrlAsync(1, "mkv"));
+        Assert.Equal(XtreamClientError.InvalidLocation, exception.Error);
+    }
+
+    [Fact]
+    public async Task PlaybackTimeout_ThrowsTimeout()
+    {
+        var handler = new StubHttpMessageHandler(async cancellationToken =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.Found);
+        });
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(
+            () => CreateClient(handler, timeoutSeconds: 1).ResolveMoviePlaybackUrlAsync(1, "mkv"));
+        Assert.Equal(XtreamClientError.Timeout, exception.Error);
+    }
+
+    [Fact]
+    public async Task PlaybackNetworkError_ThrowsUnavailable()
+    {
+        var handler = new StubHttpMessageHandler(
+            (Func<CancellationToken, HttpResponseMessage>)(_ => throw new HttpRequestException("network detail")));
+        var exception = await Assert.ThrowsAsync<XtreamClientException>(
+            () => CreateClient(handler).ResolveMoviePlaybackUrlAsync(1, "mkv"));
+        Assert.Equal(XtreamClientError.Unavailable, exception.Error);
+    }
+
     private static XtreamClient CreateClient(
         HttpMessageHandler handler,
         string baseUrl = "https://provider.invalid",
@@ -227,12 +380,16 @@ public sealed class XtreamClientTests
         }
 
         public Uri? LastRequestUri { get; private set; }
+        public int RequestCount { get; private set; }
+        public string? LastUserAgent { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            RequestCount++;
             LastRequestUri = request.RequestUri;
+            LastUserAgent = request.Headers.UserAgent.ToString();
             return responseFactory(cancellationToken);
         }
     }

@@ -1,6 +1,7 @@
 using AndreaTV.Api.Configuration;
 using AndreaTV.Api.Infrastructure.Xtream;
 using AndreaTV.Api.Modules.Devices.Services;
+using AndreaTV.Api.Modules.Movies.Catalog;
 using AndreaTV.Api.Modules.Movies.Services;
 using AndreaTV.Api.Modules.Security.Services;
 using AndreaTV.Api.Modules.Series.Services;
@@ -25,6 +26,8 @@ builder.Services.AddHealthChecks();
 
 builder.Services.Configure<XtreamOptions>(
     builder.Configuration.GetSection(XtreamOptions.SectionName));
+builder.Services.Configure<MovieCatalogOptions>(
+    builder.Configuration.GetSection(MovieCatalogOptions.SectionName));
 builder.Services.Configure<JwtOptions>(
     builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<SecurityOptions>(
@@ -40,6 +43,9 @@ builder.Services
         AllowAutoRedirect = false
     })
     .RemoveAllLoggers();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IMovieCatalogRepository, FileMovieCatalogRepository>();
+builder.Services.AddSingleton<IMovieCatalogCache, MovieCatalogCache>();
 builder.Services.AddScoped<IMovieService, MovieService>();
 builder.Services.AddScoped<ISeriesService, SeriesService>();
 builder.Services.AddScoped<IAuthService, AuthService>();

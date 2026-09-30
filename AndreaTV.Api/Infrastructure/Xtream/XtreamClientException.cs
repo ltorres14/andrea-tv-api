@@ -8,7 +8,13 @@ public enum XtreamClientError
     Unavailable,
     Timeout,
     HttpError,
-    InvalidResponse
+    InvalidResponse,
+    InvalidRequest,
+    CredentialsRejected,
+    NotFound,
+    UnexpectedResponse,
+    MissingLocation,
+    InvalidLocation
 }
 
 public sealed class XtreamClientException : Exception
